@@ -6,9 +6,6 @@
 
 # !pip install streamlit requests google-generativeai python-dotenv
 
-
-# !pip install streamlit requests google-generativeai python-dotenv
-
 import streamlit as st
 import requests
 import os
@@ -46,13 +43,26 @@ st.title("🌤️ Consulta de Temperatura com IA")
 
 # ========= Função: Extrai coordenadas com Nominatim =========
 def get_coordinates_from_city(city_name):
-    url = f"https://nominatim.openstreetmap.org/search?q={city_name}&format=json&limit=1"
+    # Tenta primeiro com o nome completo (ex: "Salvador, Brazil")
+    url_full = f"https://nominatim.openstreetmap.org/search?q={city_name}&format=json&limit=1&addressdetails=1"
     headers = {"User-Agent": "clima-com-ia"}
-    response = requests.get(url, headers=headers)
+    response = requests.get(url_full, headers=headers)
+
     if response.status_code == 200 and response.json():
         data = response.json()[0]
         return float(data["lat"]), float(data["lon"])
+
+    # Se não funcionar, tenta apenas a cidade (ex: "Salvador")
+    city_only = city_name.split(",")[0]
+    url_simple = f"https://nominatim.openstreetmap.org/search?q={city_only}&format=json&limit=1&addressdetails=1"
+    response = requests.get(url_simple, headers=headers)
+
+    if response.status_code == 200 and response.json():
+        data = response.json()[0]
+        return float(data["lat"]), float(data["lon"])
+
     return None, None
+
 
 # ========= Função: Consulta clima por coordenadas =========
 def get_weather_by_coordinates(lat, lon):
@@ -85,22 +95,22 @@ user_input = st.chat_input("Pergunte a temperatura de qualquer cidade...")
 if user_input:
     st.chat_message("user").markdown(user_input)
 
-    # Prompt para extrair a localidade (cidade ou cidade + país)
+    # Prompt para extrair a localidade
     extract_location_prompt = f"""
     O usuário escreveu: '{user_input}'
 
     Extraia apenas o nome do local (cidade ou cidade + país) que aparece na frase, se houver.
 
-    Responda apenas com o nome do local, como por exemplo: "Dublin", "Vitória, Brasil" ou "Tóquio".
+    Responda apenas com o nome do local no formato: "Cidade, País", com o país em inglês, como por exemplo: "Salvador, Brazil", "Lisbon, Portugal".
 
-    Se não houver local, responda apenas com: "nenhum"
+    Se não houver local, responda apenas com: "none"
     """
 
     try:
         location_result = model.generate_content(extract_location_prompt)
-        local = location_result.text.strip().replace('"', '')
+        local = location_result.text.strip().replace('"', '').replace('Brasil', 'Brazil')
 
-        if local.lower() != "nenhum":
+        if local.lower() != "none":
             resultado, lat, lon = consultar_temperatura(local)
             resposta = model.generate_content(
                 f"{resultado} Responda ao usuário de forma simpática e natural em português, como um assistente amigável."
@@ -125,8 +135,3 @@ if user_input:
     # Mostra o mapa se houver coordenadas válidas
     if 'lat' in locals() and lat and lon:
         st.map(pd.DataFrame({"lat": [lat], "lon": [lon]}))
-
-
-
-
-
