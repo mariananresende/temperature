@@ -20,11 +20,11 @@ import google.generativeai as genai
 # Carrega as variáveis de ambiente
 load_dotenv()
 
-# Configura as APIs
-load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# Tenta pegar da nuvem, se não existir, pega do .env (uso local)
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+WEATHER_API_KEY = st.secrets.get("WEATHER_API_KEY") or os.getenv("WEATHER_API_KEY")
 
-OPENWEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
+genai.configure(api_key=GEMINI_API_KEY)
 
 
 st.set_page_config(page_title="Clima com IA", page_icon="🌍")
