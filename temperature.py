@@ -75,22 +75,45 @@ if user_input:
 
     # Prompt para decidir se é um pedido de clima
     city_decision_prompt = f"""
-    A seguinte frase foi dita por um usuário: '{user_input}'.
-    
-    Sua tarefa é responder em JSON com as seguintes chaves:
-    - "chamar_funcao": true ou false (true apenas se o usuário quiser saber a temperatura de uma cidade).
-    - "cidade": nome da cidade mencionada, se houver.
+    Você é um assistente com acesso a funções. Aqui está uma função disponível:
 
-    Instruções:
-    - Se o usuário digitar apenas o nome de uma cidade (ex: "Lisboa", "Paris"), assuma que ele quer saber a temperatura → "chamar_funcao": true.
-    - Se o usuário fizer uma pergunta genérica ou sobre outro assunto (ex: bandeira, história, localização), mesmo citando uma cidade ou país, então → "chamar_funcao": false.
-    - Responda SOMENTE com o JSON, sem explicações, sem markdown, sem formatação.
+    Função: consultar_temperatura(cidade: string)
+    Descrição: Retorna a temperatura atual de uma cidade informada.
+
+    O usuário escreveu: '{user_input}'
+
+    Sua tarefa é decidir se deseja chamar a função 'consultar_temperatura'.
+
+    Se for um pedido para saber a temperatura de uma cidade (ou apenas o nome da cidade), 
+    retorne o seguinte JSON, com o nome real da cidade no campo "cidade":
+    {{
+      "chamar_funcao": true,
+      "cidade": "Dublin"
+    }}
+
+
+    Se a frase não tiver relação com clima ou for sobre outros assuntos, 
+    responda com este JSON:
+    {{
+      "chamar_funcao": false,
+      "cidade": null
+    }}
+
+    Responda SOMENTE com o JSON. Sem explicações, sem markdown.
     """
 
     decision = model.generate_content(city_decision_prompt)
 
     try:
-        decision_json = json.loads(decision.text)
+        # Remove crases, blocos de código e explicações do retorno do modelo
+        raw_response = decision.text.strip()
+
+        # Remove crases, blocos de markdown, e deixa só o JSON
+        cleaned_response = raw_response.replace("```json", "").replace("```", "").strip()
+
+        decision_json = json.loads(cleaned_response)
+
+
 
         if decision_json.get("chamar_funcao") and decision_json.get("cidade"):
             city_name = decision_json["cidade"]
