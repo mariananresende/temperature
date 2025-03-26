@@ -76,13 +76,14 @@ if user_input:
     # Prompt para decidir se é um pedido de clima
     city_decision_prompt = f"""
     A seguinte frase foi dita por um usuário: '{user_input}'.
-    Você deve analisar e responder em JSON com as chaves:
-
-    - "chamar_funcao": true ou false (se a frase indica um pedido de clima).
+    
+    Sua tarefa é responder em JSON com as seguintes chaves:
+    - "chamar_funcao": true ou false (true apenas se o usuário quiser saber a temperatura de uma cidade).
     - "cidade": nome da cidade mencionada, se houver.
 
-    Importante:
-    - Se o usuário digitou apenas o nome de uma cidade, assuma que ele quer saber a temperatura e retorne "chamar_funcao": true.
+    Instruções:
+    - Se o usuário digitar apenas o nome de uma cidade (ex: "Lisboa", "Paris"), assuma que ele quer saber a temperatura → "chamar_funcao": true.
+    - Se o usuário fizer uma pergunta genérica ou sobre outro assunto (ex: bandeira, história, localização), mesmo citando uma cidade ou país, então → "chamar_funcao": false.
     - Responda SOMENTE com o JSON, sem explicações, sem markdown, sem formatação.
     """
 
