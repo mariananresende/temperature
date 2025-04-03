@@ -16,11 +16,9 @@ import google.generativeai as genai
 # ========= Carrega variáveis de ambiente =========
 load_dotenv()
 
-# Primeiro tenta pegar do .env
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
-# Se não encontrar no .env, tenta no secrets (Streamlit Cloud)
 if not GEMINI_API_KEY or not WEATHER_API_KEY:
     try:
         GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
@@ -28,22 +26,12 @@ if not GEMINI_API_KEY or not WEATHER_API_KEY:
     except (FileNotFoundError, KeyError):
         pass
 
-# Validação básica
 if not GEMINI_API_KEY or not WEATHER_API_KEY:
-    st.error("⚠️ API keys não foram encontradas. Verifique o arquivo .env (modo local) ou secrets.toml (Streamlit Cloud).")
+    st.error("⚠️ API keys não foram encontradas. Verifique o .env ou o secrets.toml.")
     st.stop()
 
-# ========= Configura modelo =========
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
-
-# ========= Configuração da página =========
-st.set_page_config(page_title="Clima com IA", page_icon="🌍")
-st.title("🌤️ Consulta de Temperatura com IA")
-
-# ========= Função: Extrai coordenadas com Nominatim =========
+# ========= Funções =========
 def get_coordinates_from_city(city_name):
-    # Tenta primeiro com o nome completo (ex: "Salvador, Brazil")
     url_full = f"https://nominatim.openstreetmap.org/search?q={city_name}&format=json&limit=1&addressdetails=1"
     headers = {"User-Agent": "clima-com-ia"}
     response = requests.get(url_full, headers=headers)
@@ -52,7 +40,6 @@ def get_coordinates_from_city(city_name):
         data = response.json()[0]
         return float(data["lat"]), float(data["lon"])
 
-    # Se não funcionar, tenta apenas a cidade (ex: "Salvador")
     city_only = city_name.split(",")[0]
     url_simple = f"https://nominatim.openstreetmap.org/search?q={city_only}&format=json&limit=1&addressdetails=1"
     response = requests.get(url_simple, headers=headers)
@@ -63,8 +50,6 @@ def get_coordinates_from_city(city_name):
 
     return None, None
 
-
-# ========= Função: Consulta clima por coordenadas =========
 def get_weather_by_coordinates(lat, lon):
     url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}&units=metric&lang=pt"
     response = requests.get(url)
@@ -73,65 +58,77 @@ def get_weather_by_coordinates(lat, lon):
         return data["main"]["temp"], data["weather"][0]["description"], data["name"]
     return None, None, None
 
-# ========= Função real que será chamada com base no modelo =========
-def consultar_temperatura(local):
+def consultar_temperatura(local: str) -> dict:
     lat, lon = get_coordinates_from_city(local)
     if lat and lon:
         temp, desc, nome = get_weather_by_coordinates(lat, lon)
         if temp is not None:
-            return f"A temperatura atual em {nome} é de {temp}°C com {desc}.", lat, lon
+            return {"mensagem": f"A temperatura atual em {nome} é de {temp} °C com {desc}.", "lat": lat, "lon": lon}
         else:
-            return f"A cidade {local} foi encontrada, mas o clima não pôde ser consultado. Tente mais tarde.", None, None
-    else:
-        return f"A cidade '{local}' não pôde ser localizada. Verifique a grafia ou tente outra cidade.", None, None
+            return {"mensagem": f"A cidade {local} foi encontrada, mas o clima não pôde ser consultado.", "lat": None, "lon": None}
+    return {"mensagem": f"A cidade '{local}' não foi localizada.", "lat": None, "lon": None}
 
-# ========= Sessão do chat =========
+# ========= Configura modelo com ferramentas =========
+genai.configure(api_key=GEMINI_API_KEY)
+
+functions = [
+    {
+        "name": "consultar_temperatura",
+        "description": "Obtém a temperatura atual de uma cidade com base no nome da localidade.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "local": {
+                    "type": "string",
+                    "description": "Nome da cidade (pode incluir o país, ex: 'Lisbon, Portugal')"
+                }
+            },
+            "required": ["local"]
+        }
+    }
+]
+
+model = genai.GenerativeModel("gemini-1.5-flash", tools=[{"function_declarations": functions}])
+
+# ========= Interface =========
+st.set_page_config(page_title="Clima com IA", page_icon="🌍")
+st.title("🌤️ Consulta de Temperatura com IA")
+
 if "chat" not in st.session_state:
     st.session_state.chat = model.start_chat(history=[])
 
-# ========= Entrada do usuário =========
 user_input = st.chat_input("Pergunte a temperatura de qualquer cidade...")
 
 if user_input:
     st.chat_message("user").markdown(user_input)
+    response = st.session_state.chat.send_message(user_input, stream=False)
 
-    # Prompt para extrair a localidade
-    extract_location_prompt = f"""
-    O usuário escreveu: '{user_input}'
+    # DEBUG opcional (log bruto da resposta)
+    # st.write(response)
 
-    Extraia apenas o nome do local (cidade ou cidade + país) que aparece na frase, se houver.
-
-    Responda apenas com o nome do local no formato: "Cidade, País", com o país em inglês, como por exemplo: "Salvador, Brazil", "Lisbon, Portugal".
-
-    Se não houver local, responda apenas com: "none"
-    """
-
+    # Executa a função chamada se houver
     try:
-        location_result = model.generate_content(extract_location_prompt)
-        local = location_result.text.strip().replace('"', '').replace('Brasil', 'Brazil')
-
-        if local.lower() != "none":
-            resultado, lat, lon = consultar_temperatura(local)
-            resposta = model.generate_content(
-                f"{resultado} Responda ao usuário de forma simpática e natural em português, como um assistente amigável."
-            )
-        else:
-            resposta_texto = (
-                "Desculpe! Sou um assistente especializado em clima. "
-                "Você pode me perguntar, por exemplo: 'Qual a temperatura em Lisboa?' 🌍"
-            )
-
+        call = response.candidates[0].content.parts[0].function_call
+        if call.name == "consultar_temperatura":
+            result = consultar_temperatura(**call.args)
+            st.chat_message("function").markdown(result["mensagem"])
+            if result["lat"] and result["lon"]:
+                st.map(pd.DataFrame({"lat": [result["lat"]], "lon": [result["lon"]]}))
     except Exception as e:
-        resposta = model.generate_content(
-            f"Houve um erro ao interpretar a solicitação: {str(e)}. Peça desculpas e oriente o usuário a tentar novamente."
-        )
+        st.write("Erro ao interpretar function_call:", e)
 
-    # Renderização da resposta
-    if "resposta" in locals():
-        st.chat_message("assistant").markdown(resposta.text)
-    elif "resposta_texto" in locals():
-        st.chat_message("assistant").markdown(resposta_texto)
+    # Renderiza resposta textual, se houver
+    try:
+        parts = response.candidates[0].content.parts
+        reply = "".join([part.text for part in parts if hasattr(part, "text")])
+        if reply.strip():
+            st.chat_message("assistant").markdown(reply)
+    except Exception as e:
+        st.write("Erro ao extrair resposta de texto:", e)
 
-    # Mostra o mapa se houver coordenadas válidas
-    if 'lat' in locals() and lat and lon:
-        st.map(pd.DataFrame({"lat": [lat], "lon": [lon]}))
+
+
+
+
+
+
